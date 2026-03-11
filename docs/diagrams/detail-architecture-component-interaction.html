@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notification Service — Detail Architecture &amp; Component Interaction</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #fff;
+      color: #1a1a1a;
+      line-height: 1.5;
+      font-size: 11pt;
+    }
+    .no-print { margin-bottom: 16px; }
+    @media print { .no-print { display: none !important; } }
+    .download-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    .download-bar button {
+      padding: 8px 16px;
+      background: #1565c0;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .download-bar button:hover { background: #0d47a1; }
+    .download-bar span { color: #333; font-size: 0.9rem; }
+
+    h1 { font-size: 1.6rem; color: #0d47a1; margin-bottom: 0.25rem; page-break-after: avoid; }
+    h2 { font-size: 1.2rem; color: #333; margin-top: 24px; margin-bottom: 8px; page-break-after: avoid; }
+    h3 { font-size: 1rem; color: #444; margin-top: 16px; margin-bottom: 6px; page-break-after: avoid; }
+    .doc-subtitle { font-size: 0.95rem; color: #555; margin-bottom: 8px; }
+    .doc-meta { font-size: 0.85rem; color: #666; margin-bottom: 24px; }
+    .toc { margin: 20px 0; padding: 16px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e0e0e0; }
+    .toc ul { margin: 8px 0 0 16px; padding: 0; list-style: none; }
+    .toc a { color: #1565c0; text-decoration: none; font-size: 0.9rem; }
+    .toc a:hover { text-decoration: underline; }
+    .toc > ul > li { margin: 6px 0; }
+
+    .section { margin: 20px 0; page-break-inside: avoid; }
+    .diagram-container {
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 20px;
+      margin: 12px 0;
+      min-height: 180px;
+      overflow-x: auto;
+      page-break-inside: avoid;
+    }
+    .mermaid { text-align: center; }
+    .mermaid svg { max-width: 100%; height: auto; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9rem; page-break-inside: avoid; }
+    th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; }
+    th { background: #f5f5f5; font-weight: 600; }
+    ul, ol { margin: 8px 0; padding-left: 24px; }
+    li { margin: 4px 0; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    p { margin: 8px 0; }
+
+    @media print {
+      body { padding: 12px; max-width: none; font-size: 10pt; }
+      .diagram-container { background: #fff; border: 1px solid #999; }
+      .section, .diagram-container { page-break-inside: avoid; }
+      h2 { margin-top: 16px; }
+      a { color: #000; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="no-print download-bar">
+    <button type="button" onclick="window.print();">Download as PDF</button>
+    <span>→ Choose &quot;Save as PDF&quot; or &quot;Microsoft Print to PDF&quot; as the printer.</span>
+  </div>
+
+  <h1>Notification Service</h1>
+  <p class="doc-subtitle">Detail Architecture &amp; Component Interaction</p>
+  <p class="doc-meta">Document version: 1.0 · Multi-channel notification (SMS, Email, Push) for internal and mobile users.</p>
+
+  <nav class="toc">
+    <h2 id="toc">Table of contents</h2>
+    <ul>
+      <li><a href="#overview">1. Overview &amp; scope</a></li>
+      <li><a href="#high-level">2. High-level architecture</a></li>
+      <li><a href="#components">3. Component detail</a></li>
+      <li><a href="#data">4. Data stores &amp; models</a></li>
+      <li><a href="#flow-immediate">5. Interaction: Send immediate notification</a></li>
+      <li><a href="#flow-subscriber">6. Interaction: New mobile subscriber → email to internal</a></li>
+      <li><a href="#flow-scheduled">7. Interaction: Scheduled notifications (Scheduler Service)</a></li>
+      <li><a href="#layers">8. Notification Service layers</a></li>
+      <li><a href="#api">9. API summary</a></li>
+      <li><a href="#deployment">10. Deployment &amp; scalability</a></li>
+    </ul>
+  </nav>
+
+  <!-- 1. Overview -->
+  <section class="section" id="overview">
+    <h2>1. Overview &amp; scope</h2>
+    <p>The Notification Service delivers messages through <strong>SMS</strong>, <strong>Email</strong>, and <strong>Push Notifications</strong>, targeting <strong>internal users</strong> (operators, customer services) and <strong>mobile application users</strong>. It is designed for high availability (minimum two active instances) and uses PaaS for delivery (e.g. AWS SES/SNS, Firebase FCM).</p>
+    <p><strong>Key capabilities:</strong></p>
+    <ul>
+      <li>Delivery channels: SMS, Email, Push</li>
+      <li>Audiences: INTERNAL, MOBILE_APP</li>
+      <li>Immediate and scheduled notifications</li>
+      <li>REST and GraphQL APIs; OAuth2 + JWT</li>
+      <li>Separate Scheduler Service (Quarkus) for cron-driven processing</li>
+    </ul>
+  </section>
+
+  <!-- 2. High-level architecture -->
+  <section class="section" id="high-level">
+    <h2>2. High-level architecture</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+flowchart TB
+    subgraph Clients["Clients"]
+        U1[App / API consumer]
+        U2[Mobile app backend]
+        U3[Internal ops]
+    end
+    subgraph Edge["Edge (SSL/TLS 1.2+)"]
+        LB[Load Balancer / API Gateway]
+    end
+    subgraph NotificationService["Notification Service (Spring Boot, x2+ instances)"]
+        REST[REST API]
+        GQL[GraphQL]
+        AUTH[OAuth2 / JWT]
+        Engine[Notification Engine]
+        REST --> Engine
+        GQL --> Engine
+        AUTH --> REST
+        AUTH --> GQL
+        Engine --> SMS_P[SMS Provider]
+        Engine --> Email_P[Email Provider]
+        Engine --> Push_P[Push Provider]
+    end
+    subgraph SchedulerService["Scheduler Service (Quarkus, 1 instance)"]
+        CRON[Cron job]
+        CRON --> REST_CLIENT[REST Client]
+    end
+    subgraph Data["Data &amp; cache"]
+        PG[(PostgreSQL)]
+        MDB[(MongoDB)]
+        REDIS[(Redis)]
+    end
+    subgraph PaaS["PaaS delivery"]
+        SES[AWS SES / Email]
+        SNS[AWS SNS / SMS]
+        FCM[Firebase FCM / Push]
+    end
+    U1 --> LB
+    U2 --> LB
+    U3 --> LB
+    LB --> NotificationService
+    SchedulerService -->|POST /internal/process-due-scheduled| LB
+    NotificationService --> PG
+    NotificationService --> MDB
+    NotificationService --> REDIS
+    SMS_P --> SNS
+    Email_P --> SES
+    Push_P --> FCM
+      </pre>
+    </div>
+    <p>Traffic reaches the Notification Service via a load balancer (HTTPS). The Scheduler Service calls the internal endpoint to process due scheduled notifications. The Notification Service uses PostgreSQL for core data, MongoDB for event logs, and Redis for idempotency and rate limiting. Delivery is delegated to PaaS (SES, SNS, FCM).</p>
+  </section>
+
+  <!-- 3. Component detail -->
+  <section class="section" id="components">
+    <h2>3. Component detail</h2>
+    <h3>3.1 Notification Service (Spring Boot)</h3>
+    <table>
+      <thead><tr><th>Component</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td>REST API</td><td>Send notification, create/list/cancel scheduled, subscriptions, templates, internal process-due-scheduled</td></tr>
+        <tr><td>GraphQL</td><td>Mutations: sendNotification, createScheduledNotification, cancelScheduledNotification; queries: scheduledNotifications, subscriptions</td></tr>
+        <tr><td>OAuth2 / JWT</td><td>Validate tokens for REST/GraphQL; internal endpoint optionally protected by API key</td></tr>
+        <tr><td>Notification Engine</td><td>Resolve recipients, render templates, call channel providers, write audit events, idempotency</td></tr>
+        <tr><td>SMS / Email / Push providers</td><td>Abstractions over AWS SNS/SES, Firebase FCM (or stubs in dev)</td></tr>
+      </tbody>
+    </table>
+    <h3>3.2 Scheduler Service (Quarkus)</h3>
+    <p>Single responsibility: run a cron (default every minute), call <code>POST /api/v1/internal/process-due-scheduled</code> on the Notification Service with optional <code>X-Internal-Api-Key</code>. No direct database access.</p>
+    <h3>3.3 Data stores</h3>
+    <table>
+      <thead><tr><th>Store</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>PostgreSQL</td><td>Templates, subscriptions, internal users, scheduled notifications</td></tr>
+        <tr><td>MongoDB</td><td>Append-only notification events (audit, analytics)</td></tr>
+        <tr><td>Redis</td><td>Idempotency keys (TTL), rate-limit counters</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 4. Data stores & models -->
+  <section class="section" id="data">
+    <h2>4. Data stores &amp; models</h2>
+    <h3>4.1 PostgreSQL (core domain)</h3>
+    <table>
+      <thead><tr><th>Entity</th><th>Key fields</th></tr></thead>
+      <tbody>
+        <tr><td>notification_template</td><td>id, channel (SMS/EMAIL/PUSH), name, body_template, subject_template, external_template_id</td></tr>
+        <tr><td>notification_subscription</td><td>id, user_id, channel, audience_type (INTERNAL/MOBILE_APP), destination (phone/email/token)</td></tr>
+        <tr><td>internal_user</td><td>id, email, roles (e.g. operators, support)</td></tr>
+        <tr><td>scheduled_notification</td><td>id, template_id, channel, audience_type, audience_filter, scheduled_at, timezone, status (PENDING/SENT/CANCELLED), context_json</td></tr>
+      </tbody>
+    </table>
+    <h3>4.2 MongoDB (events)</h3>
+    <p><code>notification_events</code>: request_id, channel, recipient, payload, status, sent_at, provider_response (append-only audit log).</p>
+    <h3>4.3 Redis</h3>
+    <p>Keys for idempotency (per request/key with TTL); optional rate-limit counters.</p>
+  </section>
+
+  <!-- 5. Interaction: Send immediate notification -->
+  <section class="section" id="flow-immediate">
+    <h2>5. Interaction: Send immediate notification</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+sequenceDiagram
+    participant Client
+    participant API as REST / GraphQL
+    participant Engine as Notification Engine
+    participant PG as PostgreSQL
+    participant Redis as Redis
+    participant Channel as Channel Provider
+    participant MDB as MongoDB
+
+    Client->>+API: POST /api/v1/notifications
+    API->>+Engine: sendToAudience(...)
+    Engine->>PG: Resolve recipients
+    PG-->>Engine: destinations
+    loop each recipient
+        Engine->>Redis: idempotency check
+        Engine->>Channel: send(...)
+        Channel-->>Engine: DeliveryResult
+        Engine->>MDB: NotificationEvent
+    end
+    Engine-->>-API: results
+    API-->>-Client: 200 OK
+      </pre>
+    </div>
+  </section>
+
+  <!-- 6. Interaction: New subscriber -->
+  <section class="section" id="flow-subscriber">
+    <h2>6. Interaction: New mobile subscriber → email to internal users</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+sequenceDiagram
+    participant App
+    participant API as NewSubscriberController
+    participant Engine as Notification Engine
+    participant PG as PostgreSQL
+    participant Email as Email Provider
+    participant MDB as MongoDB
+
+    App->>+API: POST /events/mobile-user-subscribed
+    API->>+Engine: sendToAudience(EMAIL, INTERNAL, ...)
+    Engine->>PG: internalUserRepository.findAll()
+    PG-->>Engine: internal emails
+    loop each internal user
+        Engine->>Email: send(to, subject, body)
+        Engine->>MDB: NotificationEvent
+    end
+    Engine-->>-API: results
+    API-->>-App: 202 Accepted
+      </pre>
+    </div>
+  </section>
+
+  <!-- 7. Interaction: Scheduled -->
+  <section class="section" id="flow-scheduled">
+    <h2>7. Interaction: Scheduled notifications (Scheduler Service)</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+sequenceDiagram
+    participant Cron
+    participant Scheduler as Scheduler Service
+    participant NS as Notification Service
+    participant Internal as InternalProcessController
+    participant SchedSvc as ScheduledNotificationService
+    participant Engine as Notification Engine
+    participant PG as PostgreSQL
+    participant Channel as Channel Provider
+    participant MDB as MongoDB
+
+    Cron->>+Scheduler: Trigger (every minute)
+    Scheduler->>NS: POST /internal/process-due-scheduled
+    NS->>+Internal: processDueScheduled()
+    Internal->>+SchedSvc: processDueScheduled()
+    SchedSvc->>PG: findDueScheduled(PENDING, now)
+    PG-->>SchedSvc: due list
+    loop each due
+        SchedSvc->>PG: status = SENT
+        SchedSvc->>+Engine: sendToAudience(...)
+        Engine->>Channel: send
+        Engine->>MDB: event
+        Engine-->>-SchedSvc: done
+    end
+    SchedSvc-->>-Internal: done
+    Internal-->>-NS: 202
+    NS-->>-Scheduler: 202
+      </pre>
+    </div>
+  </section>
+
+  <!-- 8. Notification Service layers -->
+  <section class="section" id="layers">
+    <h2>8. Notification Service — layers and data flow</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+flowchart TB
+    subgraph API["API layer"]
+        REST[NotificationRestController]
+        GQL[GraphQLController]
+        SubCtrl[SubscriptionController]
+        EventCtrl[NewSubscriberController]
+        InternalCtrl[InternalProcessController]
+        TemplateCtrl[TemplateController]
+    end
+    subgraph Core["Core"]
+        Engine[NotificationEngine]
+        SchedSvc[ScheduledNotificationService]
+        Idempotency[IdempotencyService]
+    end
+    subgraph Channels["Channel providers"]
+        Email[EmailProvider]
+        SMS[SmsProvider]
+        Push[PushProvider]
+    end
+    subgraph Data["Data"]
+        PG[(PostgreSQL)]
+        MDB[(MongoDB)]
+        Redis[(Redis)]
+    end
+    REST --> Engine
+    GQL --> Engine
+    EventCtrl --> Engine
+    InternalCtrl --> SchedSvc
+    SchedSvc --> Engine
+    SubCtrl --> PG
+    TemplateCtrl --> PG
+    Engine --> Email
+    Engine --> SMS
+    Engine --> Push
+    Engine --> Idempotency
+    Engine --> PG
+    Engine --> MDB
+    SchedSvc --> PG
+    Idempotency --> Redis
+      </pre>
+    </div>
+  </section>
+
+  <!-- 9. API summary -->
+  <section class="section" id="api">
+    <h2>9. API summary</h2>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>POST</td><td>/api/v1/notifications</td><td>Send immediate notification</td></tr>
+        <tr><td>POST</td><td>/api/v1/notifications/scheduled</td><td>Create scheduled notification</td></tr>
+        <tr><td>GET</td><td>/api/v1/notifications/scheduled</td><td>List scheduled (optional ?status=)</td></tr>
+        <tr><td>DELETE</td><td>/api/v1/notifications/scheduled/{id}</td><td>Cancel scheduled</td></tr>
+        <tr><td>POST</td><td>/api/v1/events/mobile-user-subscribed</td><td>New mobile subscriber → email to internal</td></tr>
+        <tr><td>POST</td><td>/api/v1/subscriptions</td><td>Register subscription</td></tr>
+        <tr><td>GET</td><td>/api/v1/subscriptions</td><td>List subscriptions</td></tr>
+        <tr><td>POST</td><td>/api/v1/internal/process-due-scheduled</td><td>Internal: process due (Scheduler Service)</td></tr>
+        <tr><td>POST/GET</td><td>/api/v1/templates</td><td>Create / list templates</td></tr>
+      </tbody>
+    </table>
+    <p>GraphQL: mutations <code>sendNotification</code>, <code>createScheduledNotification</code>, <code>cancelScheduledNotification</code>; queries <code>scheduledNotifications</code>, <code>subscriptions</code>.</p>
+  </section>
+
+  <!-- 10. Deployment -->
+  <section class="section" id="deployment">
+    <h2>10. Deployment &amp; scalability</h2>
+    <ul>
+      <li><strong>Notification Service:</strong> Stateless; run ≥2 instances behind a load balancer (e.g. AWS ALB, Azure App Gateway). TLS 1.2+.</li>
+      <li><strong>Scheduler Service:</strong> Run one instance (or use a distributed lock if multiple).</li>
+      <li><strong>PostgreSQL:</strong> Primary + read replicas; connection pooling (HikariCP).</li>
+      <li><strong>MongoDB:</strong> Replica set for event log.</li>
+      <li><strong>Redis:</strong> Cluster or managed (ElastiCache / Azure Cache).</li>
+      <li><strong>Secrets:</strong> AWS Secrets Manager / Azure Key Vault; no secrets in code.</li>
+    </ul>
+  </section>
+
+  <p class="doc-meta" style="margin-top: 32px;">End of document. To save as PDF: File → Print → Save as PDF.</p>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'neutral',
+      sequence: { useMaxWidth: true },
+      flowchart: { useMaxWidth: true }
+    });
+  </script>
+</body>
+</html>

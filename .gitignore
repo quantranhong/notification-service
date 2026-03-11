@@ -1,0 +1,28 @@
+# Build
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Maven local repo (when used inside project)
+.m2/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/
+
+# Node (docs/diagrams)
+node_modules/
+docs/diagrams/node_modules/
+
+# Logs and temp
+*.log
+*.tmp
+.DS_Store
+
+# Spring Boot
+spring-boot-devtools.properties

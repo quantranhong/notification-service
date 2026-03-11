@@ -1,0 +1,12 @@
+{
+  "name": "notification-service-diagrams",
+  "version": "1.0.0",
+  "description": "Generate PDF from detail architecture HTML",
+  "private": true,
+  "scripts": {
+    "generate-pdf": "node generate-pdf.js"
+  },
+  "devDependencies": {
+    "puppeteer": "^23.0.0"
+  }
+}

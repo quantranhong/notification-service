@@ -1,0 +1,22 @@
+# Integration test profile: Testcontainers provide real Postgres, MongoDB, Redis
+# Channel providers use stubs (no aws-ses/aws-sns/firebase-fcm set)
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ""
+
+notification:
+  channels:
+    email:
+      provider: stub
+    sms:
+      provider: stub
+    push:
+      provider: stub
+  internal:
+    api-key: ""

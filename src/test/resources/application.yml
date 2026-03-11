@@ -1,0 +1,10 @@
+# Base test config: avoid creating JwtDecoder when no issuer (unit/WebMvcTest)
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerJwtConfiguration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ""

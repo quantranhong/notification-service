@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notification Service — Architecture &amp; Interaction</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #fff;
+      color: #1a1a1a;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #0d47a1;
+    }
+    .subtitle {
+      font-size: 0.95rem;
+      color: #555;
+      margin-bottom: 24px;
+    }
+    .diagram-container {
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 24px;
+      margin: 16px 0;
+      min-height: 200px;
+      overflow-x: auto;
+    }
+    .mermaid { text-align: center; }
+    .mermaid svg { max-width: 100%; height: auto; }
+    .section {
+      margin: 24px 0;
+    }
+    .section h2 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+      color: #333;
+    }
+    .section ul, .section p {
+      margin: 0 0 8px 0;
+      padding-left: 20px;
+      line-height: 1.6;
+      font-size: 0.9rem;
+    }
+    .section p { padding-left: 0; }
+    .pdf-tip {
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin-top: 24px;
+      font-size: 0.9rem;
+    }
+    .pdf-tip strong { color: #1565c0; }
+    @media print {
+      body { padding: 16px; max-width: none; }
+      .diagram-container { background: #fff; border: 1px solid #ccc; }
+      .pdf-tip { display: none; }
+      .no-print-break { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Notification Service — Full Architecture &amp; Interaction</h1>
+  <p class="subtitle">Components, data stores, delivery channels, and main request flows for review.</p>
+
+  <!-- 1. High-level architecture -->
+  <div class="section no-print-break">
+    <h2>1. High-level architecture</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+flowchart TB
+    subgraph Clients["Clients"]
+        U1[👤 App / API consumer]
+        U2[📱 Mobile app backend]
+        U3[🖥️ Internal ops]
+    end
+
+    subgraph Edge["Edge (SSL/TLS 1.2+)"]
+        LB[Load Balancer / API Gateway]
+    end
+
+    subgraph NotificationService["Notification Service (Spring Boot, x2+ instances)"]
+        REST[REST API]
+        GQL[GraphQL]
+        AUTH[OAuth2 / JWT]
+        REST --> Engine
+        GQL --> Engine
+        AUTH --> REST
+        AUTH --> GQL
+        Engine[Notification Engine]
+        Engine --> SMS_P[SMS Provider]
+        Engine --> Email_P[Email Provider]
+        Engine --> Push_P[Push Provider]
+    end
+
+    subgraph SchedulerService["Scheduler Service (Quarkus, 1 instance)"]
+        CRON[Cron job]
+        CRON --> REST_CLIENT[REST Client]
+    end
+
+    subgraph Data["Data &amp; cache"]
+        PG[(PostgreSQL)]
+        MDB[(MongoDB)]
+        REDIS[(Redis)]
+    end
+
+    subgraph PaaS["PaaS delivery"]
+        SES[AWS SES / Email]
+        SNS[AWS SNS / SMS]
+        FCM[Firebase FCM / Push]
+    end
+
+    U1 --> LB
+    U2 --> LB
+    U3 --> LB
+    LB --> NotificationService
+    SchedulerService -->|POST /api/v1/internal/process-due-scheduled| LB
+
+    NotificationService --> PG
+    NotificationService --> MDB
+    NotificationService --> REDIS
+    SMS_P --> SNS
+    Email_P --> SES
+    Push_P --> FCM
+      </pre>
+    </div>
+    <p><strong>PostgreSQL:</strong> templates, subscriptions, internal users, scheduled notifications. <strong>MongoDB:</strong> delivery events/logs. <strong>Redis:</strong> idempotency, rate limit.</p>
+  </div>
+
+  <!-- 2. Send immediate notification -->
+  <div class="section no-print-break">
+    <h2>2. Send immediate notification (REST)</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+sequenceDiagram
+    participant Client as 👤 Client
+    participant API as REST / GraphQL
+    participant Engine as Notification Engine
+    participant PG as PostgreSQL
+    participant Redis as Redis
+    participant Channel as SMS/Email/Push Provider
+    participant MDB as MongoDB
+
+    Client->>+API: POST /api/v1/notifications (channel, audience, templateId, context)
+    API->>API: Validate, resolve template
+    API->>+Engine: sendToAudience(...)
+    Engine->>PG: Resolve recipients (internal_users or subscriptions)
+    PG-->>Engine: List of destinations
+    loop For each recipient
+        Engine->>Redis: Check idempotency key (if provided)
+        alt Cache hit
+            Redis-->>Engine: Cached result
+        else Cache miss
+            Engine->>Engine: Render body/subject from template + context
+            Engine->>Channel: send(to, subject, body)
+            Channel-->>Engine: DeliveryResult
+            Engine->>MDB: Append NotificationEvent (audit)
+            Engine->>Redis: Cache result (idempotency)
+        end
+    end
+    Engine-->>-API: List of DeliveryResult
+    API-->>-Client: 200 OK + successCount, results
+      </pre>
+    </div>
+  </div>
+
+  <!-- 3. New mobile user subscribed → email to internal -->
+  <div class="section no-print-break">
+    <h2>3. New mobile user subscribed → email to internal users</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+sequenceDiagram
+    participant App as 📱 App / Backend
+    participant API as NewSubscriberController
+    participant Engine as Notification Engine
+    participant PG as PostgreSQL
+    participant Email as Email Provider
+    participant MDB as MongoDB
+
+    App->>+API: POST /api/v1/events/mobile-user-subscribed<br/>{ userId, email } + templateId + Idempotency-Key
+    API->>+Engine: sendToAudience(templateId, EMAIL, INTERNAL, context, idempotencyPrefix)
+    Engine->>PG: internalUserRepository.findAll()
+    PG-->>Engine: Internal user emails (e.g. operators, support)
+    loop For each internal user
+        Engine->>Engine: renderBody / renderSubject (e.g. "New subscriber {{userId}}")
+        Engine->>Email: send(to, subject, body)
+        Email-->>Engine: DeliveryResult
+        Engine->>MDB: Save NotificationEvent
+    end
+    Engine-->>-API: results
+    API-->>-App: 202 Accepted
+      </pre>
+    </div>
+  </div>
+
+  <!-- 4. Scheduled notifications (Scheduler → Notification Service) -->
+  <div class="section no-print-break">
+    <h2>4. Scheduled push/notifications (Scheduler Service → Notification Service)</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+sequenceDiagram
+    participant Cron as ⏰ Cron (every minute)
+    participant Scheduler as Scheduler Service (Quarkus)
+    participant NS as Notification Service
+    participant Internal as InternalProcessController
+    participant SchedSvc as ScheduledNotificationService
+    participant Engine as Notification Engine
+    participant PG as PostgreSQL
+    participant Channel as SMS/Email/Push Provider
+    participant MDB as MongoDB
+
+    Cron->>+Scheduler: Trigger
+    Scheduler->>NS: POST /api/v1/internal/process-due-scheduled<br/>Header: X-Internal-Api-Key
+    NS->>+Internal: processDueScheduled()
+    Internal->>Internal: Validate API key (if configured)
+    Internal->>+SchedSvc: processDueScheduled()
+    SchedSvc->>PG: findDueScheduled(PENDING, now)
+    PG-->>SchedSvc: List of ScheduledNotification
+    loop For each due scheduled
+        SchedSvc->>PG: Update status → SENT
+        SchedSvc->>+Engine: sendToAudience(templateId, channel, audienceType, ...)
+        Engine->>PG: Resolve recipients
+        Engine->>Channel: Send to each recipient
+        Engine->>MDB: Log event
+        Engine-->>-SchedSvc: results
+    end
+    SchedSvc-->>-Internal: done
+    Internal-->>-NS: 202 Accepted
+    NS-->>-Scheduler: Response
+    Scheduler-->>-Cron: Done
+      </pre>
+    </div>
+  </div>
+
+  <!-- 5. System layers (Notification Service only) -->
+  <div class="section no-print-break">
+    <h2>5. Notification Service — layers and data flow</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+flowchart TB
+    subgraph API["API layer"]
+        REST[NotificationRestController]
+        GQL[NotificationGraphQLController]
+        SubCtrl[SubscriptionController]
+        EventCtrl[NewSubscriberController]
+        InternalCtrl[InternalProcessController]
+        TemplateCtrl[TemplateController]
+    end
+
+    subgraph Core["Core"]
+        Engine[NotificationEngine]
+        SchedSvc[ScheduledNotificationService]
+        Idempotency[IdempotencyService]
+    end
+
+    subgraph Channels["Channel providers (PaaS)"]
+        Email[EmailProvider]
+        SMS[SmsProvider]
+        Push[PushProvider]
+    end
+
+    subgraph Data["Data"]
+        PG[(PostgreSQL)]
+        MDB[(MongoDB)]
+        Redis[(Redis)]
+    end
+
+    REST --> Engine
+    GQL --> Engine
+    EventCtrl --> Engine
+    InternalCtrl --> SchedSvc
+    SchedSvc --> Engine
+    SubCtrl --> PG
+    TemplateCtrl --> PG
+
+    Engine --> Email
+    Engine --> SMS
+    Engine --> Push
+    Engine --> Idempotency
+    Engine --> PG
+    Engine --> MDB
+    SchedSvc --> PG
+    Idempotency --> Redis
+      </pre>
+    </div>
+  </div>
+
+  <!-- 6. Audience and channels -->
+  <div class="section no-print-break">
+    <h2>6. Audience types and delivery channels</h2>
+    <div class="diagram-container">
+      <pre class="mermaid">
+flowchart LR
+    subgraph Audience["Audience"]
+        INT[INTERNAL<br/>operators, support]
+        MOB[MOBILE_APP<br/>app users]
+    end
+
+    subgraph Channels["Channels"]
+        E[EMAIL]
+        S[SMS]
+        P[PUSH]
+    end
+
+    subgraph Resolution["Recipient resolution"]
+        INT --> E
+        INT --> PG1[(internal_users)]
+        MOB --> PG2[(notification_subscriptions)]
+        PG2 --> E
+        PG2 --> S
+        PG2 --> P
+        PG1 --> E
+    end
+      </pre>
+    </div>
+    <ul>
+      <li><strong>INTERNAL</strong> — Recipients from <code>internal_users</code> (e.g. email only).</li>
+      <li><strong>MOBILE_APP</strong> — Recipients from <code>notification_subscriptions</code> by channel (SMS, EMAIL, PUSH).</li>
+    </ul>
+  </div>
+
+  <div class="pdf-tip">
+    <strong>Save as PDF:</strong> Use your browser’s menu <strong>File → Print</strong> (or Ctrl+P / Cmd+P), then choose <strong>Save as PDF</strong>. The diagrams will be included on the printed pages.
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'neutral',
+      sequence: { useMaxWidth: true },
+      flowchart: { useMaxWidth: true }
+    });
+  </script>
+</body>
+</html>

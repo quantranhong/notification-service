@@ -1,0 +1,20 @@
+# Local development: optional JWT (leave issuer empty to use mock), relaxed DB init
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OAUTH2_ISSUER_URI:}
+
+# If no OAuth2 issuer is set, enable a permit-all profile for local testing (set auth to permitAll in code for dev)
+notification:
+  channels:
+    email:
+      provider: stub
+    sms:
+      provider: stub
+    push:
+      provider: stub

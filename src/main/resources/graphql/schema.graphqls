@@ -1,0 +1,55 @@
+type Mutation {
+    sendNotification(input: SendNotificationInput!): SendNotificationPayload
+    createScheduledNotification(input: CreateScheduledInput!): ScheduledNotification
+    cancelScheduledNotification(id: ID!): Boolean
+}
+
+type Query {
+    scheduledNotifications(status: String): [ScheduledNotification!]!
+    subscriptions(userId: String, channel: String, audienceType: String): [NotificationSubscription!]!
+}
+
+input SendNotificationInput {
+    channel: String!
+    audienceType: String!
+    templateId: ID!
+    context: [KeyValueInput!]
+    idempotencyKey: String
+}
+
+input KeyValueInput {
+    key: String!
+    value: String!
+}
+
+input CreateScheduledInput {
+    templateId: ID!
+    channel: String!
+    audienceType: String!
+    audienceFilter: String
+    scheduledAt: String!
+    timezone: String
+    context: [KeyValueInput!]
+}
+
+type SendNotificationPayload {
+    success: Boolean!
+    totalRecipients: Int!
+    successCount: Int!
+}
+
+type ScheduledNotification {
+    id: ID!
+    channel: String!
+    audienceType: String!
+    scheduledAt: String!
+    status: String!
+}
+
+type NotificationSubscription {
+    id: ID!
+    userId: String!
+    channel: String!
+    audienceType: String!
+    destination: String!
+}

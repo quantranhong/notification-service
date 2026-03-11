@@ -102,6 +102,7 @@ Scheduled notifications are processed by a separate **Notification Scheduler Ser
 | **Unit** | Services (engine, scheduled, idempotency) and REST controllers (notifications, internal, subscriptions, templates, new-subscriber) with mocks | None |
 | **Integration** | Full app + real HTTP + PostgreSQL, MongoDB, Redis (Testcontainers) — templates, send, subscriptions, new-subscriber, scheduled create/process/cancel | Docker (Postgres, Mongo, Redis containers) |
 
-## Design
+## Design & review
 
-See [docs/DESIGN.md](docs/DESIGN.md) for architecture, data model, and technology choices.
+- [docs/DESIGN.md](docs/DESIGN.md) — Architecture, data model, and technology choices.
+- [docs/REVIEW.md](docs/REVIEW.md) — Full review of code, tests, security, and recommendations.

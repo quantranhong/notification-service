@@ -102,6 +102,24 @@ Scheduled notifications are processed by a separate **Notification Scheduler Ser
 | **Unit** | Services (engine, scheduled, idempotency) and REST controllers (notifications, internal, subscriptions, templates, new-subscriber) with mocks | None |
 | **Integration** | Full app + real HTTP + PostgreSQL, MongoDB, Redis (Testcontainers) — templates, send, subscriptions, new-subscriber, scheduled create/process/cancel | Docker (Postgres, Mongo, Redis containers) |
 
+## Push to remote (fix "no upstream configured for branch main")
+
+If you see **no upstream configured for branch 'main'**, set the remote and push once:
+
+```bash
+# Add your remote (replace with your repo URL, e.g. GitHub/GitLab)
+git remote add origin https://github.com/YOUR_USER/notification-service.git
+
+# Push and set upstream so future push/pull work
+git push -u origin main
+```
+
+If `origin` already exists but the branch still has no upstream, run only:
+
+```bash
+git push -u origin main
+```
+
 ## Design & review
 
 - [docs/DESIGN.md](docs/DESIGN.md) — Architecture, data model, and technology choices.
